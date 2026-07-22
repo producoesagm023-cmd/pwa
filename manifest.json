@@ -1,0 +1,14 @@
+{
+  "name": "BT Radar - Rastreador Bluetooth",
+  "short_name": "BT Radar",
+  "description": "Identifica e rastreia dispositivos Bluetooth próximos com distância, força de sinal e posição aproximada.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

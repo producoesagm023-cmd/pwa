@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>BT Radar - Rastreador Bluetooth</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" href="icons/icon-192.png">
+<style>
+  :root{
+    --bg:#0f172a; --panel:#111827; --panel2:#1e293b; --accent:#38bdf8;
+    --accent2:#22d3ee; --text:#e5e7eb; --muted:#94a3b8; --danger:#f87171; --ok:#34d399;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh; padding-bottom:40px;
+  }
+  header{
+    padding:18px 20px 12px; display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid #1f2937; position:sticky; top:0; background:var(--bg); z-index:5;
+  }
+  header h1{font-size:18px; margin:0; display:flex; align-items:center; gap:8px;}
+  header h1 span.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;}
+  header h1 span.dot.on{background:var(--ok); box-shadow:0 0 8px var(--ok);}
+  .wrap{max-width:920px; margin:0 auto; padding:16px;}
+  .controls{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
+  button{
+    background:var(--accent); color:#0b1220; border:none; padding:10px 16px;
+    border-radius:10px; font-weight:600; font-size:14px; cursor:pointer;
+    transition:transform .1s, opacity .2s;
+  }
+  button:active{transform:scale(0.97);}
+  button.secondary{background:var(--panel2); color:var(--text); border:1px solid #334155;}
+  button:disabled{opacity:.5; cursor:not-allowed;}
+  .status{font-size:13px; color:var(--muted); margin-bottom:6px; min-height:18px;}
+  .layout{display:grid; grid-template-columns:1fr; gap:20px;}
+  @media(min-width:760px){ .layout{grid-template-columns:340px 1fr;} }
+  .radar-box{
+    background:var(--panel); border-radius:16px; padding:16px;
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+  }
+  svg{width:100%; max-width:320px; height:auto;}
+  .ring{fill:none; stroke:#1f2937; stroke-width:1;}
+  .ring-label{fill:#475569; font-size:9px;}
+  .sweep{fill:url(#sweepGrad); opacity:.55;}
+  .device-dot{cursor:pointer;}
+  .device-dot circle.core{stroke:#0b1220; stroke-width:1.5;}
+  .device-dot text{fill:#e5e7eb; font-size:8px; font-weight:600;}
+  .legend{font-size:11px; color:var(--muted); text-align:center; line-height:1.5;}
+  .list{background:var(--panel); border-radius:16px; padding:6px; overflow:hidden;}
+  .list h2{font-size:14px; margin:10px 14px 6px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em;}
+  .device-row{
+    display:flex; align-items:center; gap:12px; padding:12px 14px;
+    border-bottom:1px solid #1f2937;
+  }
+  .device-row:last-child{border-bottom:none;}
+  .badge{
+    width:38px;height:38px;border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:16px; background:var(--panel2); flex-shrink:0;
+  }
+  .dev-info{flex:1; min-width:0;}
+  .dev-name{font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .dev-id{font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .dev-meta{display:flex; gap:10px; font-size:11px; color:var(--muted); margin-top:2px; flex-wrap:wrap;}
+  .signal-bars{display:flex; align-items:flex-end; gap:2px; height:16px;}
+  .signal-bars i{width:4px; border-radius:1px; background:#334155;}
+  .signal-bars i.filled{background:var(--accent);}
+  .rssi-val{font-size:12px; font-weight:700; width:44px; text-align:right;}
+  .dist-val{font-size:12px; font-weight:700; color:var(--accent2); width:56px; text-align:right;}
+  .empty{padding:30px 14px; text-align:center; color:var(--muted); font-size:13px; line-height:1.6;}
+  .notice{
+    background:#1e293b; border:1px solid #334155; border-radius:12px; padding:12px 14px;
+    font-size:12.5px; color:var(--muted); margin-bottom:16px; line-height:1.6;
+  }
+  .notice b{color:var(--text);}
+  .notice code{background:#0b1220; padding:1px 5px; border-radius:4px; color:var(--accent2);}
+  footer{text-align:center; color:#475569; font-size:11px; padding:20px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span id="liveDot" class="dot"></span> BT Radar</h1>
+  <button id="installBtn" class="secondary" style="display:none">Instalar app</button>
+</header>
+
+<div class="wrap">
+
+  <div class="notice">
+    Este app usa a <b>Web Bluetooth API</b> do Chrome OS para detectar sinais BLE ao redor.
+    Para ver <b>RSSI em tempo real de todos os dispositivos</b> (varredura passiva), ative em
+    <code>chrome://flags/#enable-experimental-web-platform-features</code> e reinicie o navegador.
+    Sem isso, o navegador abrirá o seletor nativo do Chrome OS para você escolher um dispositivo por vez.
+    A "posição" no radar é <b>aproximada</b>: o ângulo é apenas ilustrativo (Bluetooth não informa direção),
+    a distância vem da força do sinal (RSSI).
+  </div>
+
+  <div class="controls">
+    <button id="scanBtn">🔍 Iniciar varredura</button>
+    <button id="pairBtn" class="secondary">➕ Adicionar dispositivo</button>
+    <button id="clearBtn" class="secondary">🗑 Limpar lista</button>
+  </div>
+  <div class="status" id="statusText">Pronto para escanear.</div>
+
+  <div class="layout">
+    <div class="radar-box">
+      <svg id="radarSvg" viewBox="0 0 300 300">
+        <defs>
+          <radialGradient id="sweepGrad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0"/>
+            <stop offset="100%" stop-color="#38bdf8" stop-opacity=".35"/>
+          </radialGradient>
+        </defs>
+        <g id="ringsGroup"></g>
+        <g id="sweepGroup"></g>
+        <g id="dotsGroup"></g>
+        <circle cx="150" cy="150" r="4" fill="#38bdf8"/>
+      </svg>
+      <div class="legend">Centro = este Chromebook. Anéis = 1m / 3m / 6m / 12m+ (estimado por RSSI)</div>
+    </div>
+
+    <div class="list">
+      <h2 id="listTitle">Dispositivos (0)</h2>
+      <div id="deviceList">
+        <div class="empty">Nenhum dispositivo detectado ainda.<br>Toque em "Iniciar varredura" ou "Adicionar dispositivo".</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>Funciona 100% localmente no dispositivo · Nenhum dado é enviado para servidores</footer>
+
+<script>
+(function(){
+  const statusText = document.getElementById('statusText');
+  const liveDot = document.getElementById('liveDot');
+  const deviceList = document.getElementById('deviceList');
+  const listTitle = document.getElementById('listTitle');
+  const dotsGroup = document.getElementById('dotsGroup');
+  const ringsGroup = document.getElementById('ringsGroup');
+  const sweepGroup = document.getElementById('sweepGroup');
+
+  const scanBtn = document.getElementById('scanBtn');
+  const pairBtn = document.getElementById('pairBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const installBtn = document.getElementById('installBtn');
+
+  const CX = 150, CY = 150;
+  const MAX_R = 130;
+  const RING_DIST = [1, 3, 6, 12]; // metros, mapeados nos anéis
+  const RING_R = [40, 75, 105, 130];
+
+  // devices: Map id -> {id, name, rssi, txPower, lastSeen, angle, history:[]}
+  const devices = new Map();
+  let scanController = null;
+  let scanning = false;
+  let sweepAngle = 0;
+  let sweepTimer = null;
+
+  function drawRings(){
+    ringsGroup.innerHTML = '';
+    RING_R.forEach((r, i) => {
+      const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      c.setAttribute('cx', CX); c.setAttribute('cy', CY); c.setAttribute('r', r);
+      c.setAttribute('class','ring');
+      ringsGroup.appendChild(c);
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x', CX + 4); t.setAttribute('y', CY - r + 10);
+      t.setAttribute('class','ring-label');
+      t.textContent = RING_DIST[i] + 'm+';
+      ringsGroup.appendChild(t);
+    });
+    // crosshair lines
+    [0,45,90,135].forEach(deg=>{
+      const rad = deg*Math.PI/180;
+      const x1 = CX - MAX_R*Math.cos(rad), y1 = CY - MAX_R*Math.sin(rad);
+      const x2 = CX + MAX_R*Math.cos(rad), y2 = CY + MAX_R*Math.sin(rad);
+      const l = document.createElementNS('http://www.w3.org/2000/svg','line');
+      l.setAttribute('x1',x1); l.setAttribute('y1',y1); l.setAttribute('x2',x2); l.setAttribute('y2',y2);
+      l.setAttribute('stroke','#1f2937'); l.setAttribute('stroke-width','1');
+      ringsGroup.appendChild(l);
+    });
+  }
+
+  function startSweep(){
+    stopSweep();
+    sweepTimer = setInterval(()=>{
+      sweepAngle = (sweepAngle + 4) % 360;
+      const rad = sweepAngle*Math.PI/180;
+      const x2 = CX + MAX_R*Math.cos(rad), y2 = CY + MAX_R*Math.sin(rad);
+      sweepGroup.innerHTML = `<path d="M ${CX} ${CY} L ${x2} ${y2} A ${MAX_R} ${MAX_R} 0 0 1 ${CX+MAX_R*Math.cos(rad-0.5)} ${CY+MAX_R*Math.sin(rad-0.5)} Z" class="sweep"/>`;
+    }, 40);
+  }
+  function stopSweep(){
+    if(sweepTimer){ clearInterval(sweepTimer); sweepTimer=null; }
+    sweepGroup.innerHTML = '';
+  }
+
+  // Distância estimada via RSSI (path-loss log-distance model)
+  // d = 10 ^ ((txPower - rssi) / (10 * n))
+  function estimateDistance(rssi, txPower){
+    const tx = (typeof txPower === 'number') ? txPower : -59; // valor típico BLE a 1m
+    const n = 2.5; // fator de ambiente (2=espaço livre, 3-4=obstáculos)
+    const d = Math.pow(10, (tx - rssi) / (10*n));
+    return Math.max(0.1, d);
+  }
+
+  function distToRadius(d){
+    // mapeia distância (m) para raio em px usando os anéis de referência (escala não-linear)
+    if(d <= 1) return (d/1)*RING_R[0];
+    if(d <= 3) return RING_R[0] + ((d-1)/2)*(RING_R[1]-RING_R[0]);
+    if(d <= 6) return RING_R[1] + ((d-3)/3)*(RING_R[2]-RING_R[1]);
+    if(d <= 12) return RING_R[2] + ((d-6)/6)*(RING_R[3]-RING_R[2]);
+    return RING_R[3];
+  }
+
+  // ângulo pseudo-estável por id (só ilustrativo, BT não informa direção real)
+  function angleForId(id){
+    let hash = 0;
+    for(let i=0;i<id.length;i++){ hash = (hash*31 + id.charCodeAt(i)) & 0xffffffff; }
+    return (Math.abs(hash) % 360);
+  }
+
+  function rssiToBars(rssi){
+    // rssi tipico entre -100 (fraco) e -30 (forte)
+    const pct = Math.min(1, Math.max(0, (rssi + 100) / 70));
+    return Math.round(pct*4)+1;
+  }
+
+  function iconFor(name){
+    const n = (name||'').toLowerCase();
+    if(n.includes('phone') || n.includes('iphone') || n.includes('galaxy')) return '📱';
+    if(n.includes('watch')) return '⌚';
+    if(n.includes('buds') || n.includes('headphone') || n.includes('airpods') || n.includes('fone')) return '🎧';
+    if(n.includes('speaker') || n.includes('boom') || n.includes('jbl')) return '🔊';
+    if(n.includes('mouse')) return '🖱️';
+    if(n.includes('keyboard') || n.includes('teclado')) return '⌨️';
+    if(n.includes('tv')) return '📺';
+    if(n.includes('car') || n.includes('carro')) return '🚗';
+    return '🔵';
+  }
+
+  function upsertDevice(id, name, rssi, txPower){
+    const now = Date.now();
+    const existing = devices.get(id);
+    if(existing){
+      existing.rssi = rssi;
+      existing.lastSeen = now;
+      if(name && name !== 'Desconhecido') existing.name = name;
+      existing.history.push(rssi);
+      if(existing.history.length > 20) existing.history.shift();
+    } else {
+      devices.set(id, {
+        id, name: name || 'Desconhecido', rssi, txPower,
+        angle: angleForId(id), lastSeen: now, history:[rssi]
+      });
+    }
+    render();
+  }
+
+  function render(){
+    const arr = Array.from(devices.values()).sort((a,b)=> b.rssi - a.rssi);
+    listTitle.textContent = `Dispositivos (${arr.length})`;
+
+    // lista
+    if(arr.length === 0){
+      deviceList.innerHTML = '<div class="empty">Nenhum dispositivo detectado ainda.<br>Toque em "Iniciar varredura" ou "Adicionar dispositivo".</div>';
+    } else {
+      deviceList.innerHTML = arr.map(dev=>{
+        const dist = estimateDistance(dev.rssi, dev.txPower);
+        const bars = rssiToBars(dev.rssi);
+        const barsHtml = [1,2,3,4,5].map(i=>{
+          const h = 4 + i*2.4;
+          return `<i class="${i<=bars?'filled':''}" style="height:${h}px"></i>`;
+        }).join('');
+        const secAgo = Math.round((Date.now()-dev.lastSeen)/1000);
+        return `<div class="device-row">
+          <div class="badge">${iconFor(dev.name)}</div>
+          <div class="dev-info">
+            <div class="dev-name">${escapeHtml(dev.name)}</div>
+            <div class="dev-id">${escapeHtml(dev.id)}</div>
+            <div class="dev-meta"><span>visto há ${secAgo}s</span></div>
+          </div>
+          <div class="signal-bars">${barsHtml}</div>
+          <div class="rssi-val">${dev.rssi} dBm</div>
+          <div class="dist-val">~${dist.toFixed(1)} m</div>
+        </div>`;
+      }).join('');
+    }
+
+    // radar
+    dotsGroup.innerHTML = arr.map(dev=>{
+      const dist = estimateDistance(dev.rssi, dev.txPower);
+      const r = distToRadius(dist);
+      const rad = dev.angle*Math.PI/180;
+      const x = CX + r*Math.cos(rad);
+      const y = CY + r*Math.sin(rad);
+      const bars = rssiToBars(dev.rssi);
+      const color = bars>=4 ? '#34d399' : bars>=2 ? '#38bdf8' : '#f87171';
+      const label = (dev.name||'?').slice(0,10);
+      return `<g class="device-dot" transform="translate(${x},${y})">
+        <circle class="core" r="7" fill="${color}"/>
+        <text x="0" y="-11" text-anchor="middle">${escapeHtml(label)}</text>
+      </g>`;
+    }).join('');
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function setStatus(msg, ok){
+    statusText.textContent = msg;
+    liveDot.classList.toggle('on', !!ok);
+  }
+
+  async function startScan(){
+    if(!navigator.bluetooth){
+      setStatus('Web Bluetooth não disponível neste navegador.', false);
+      return;
+    }
+    if(typeof navigator.bluetooth.requestLEScan !== 'function'){
+      setStatus('Varredura passiva indisponível. Ative a flag experimental (veja aviso acima) ou use "Adicionar dispositivo".', false);
+      return;
+    }
+    try{
+      scanController = await navigator.bluetooth.requestLEScan({ acceptAllAdvertisements: true, keepRepeatedDevices: true });
+      scanning = true;
+      scanBtn.textContent = '⏹ Parar varredura';
+      setStatus('Escaneando dispositivos Bluetooth próximos...', true);
+      startSweep();
+
+      navigator.bluetooth.addEventListener('advertisementreceived', onAdvertisement);
+    }catch(err){
+      setStatus('Erro ao iniciar varredura: ' + err.message, false);
+    }
+  }
+
+  function onAdvertisement(event){
+    const id = event.device.id;
+    const name = event.device.name || event.name || 'Desconhecido';
+    const rssi = event.rssi;
+    const txPower = event.txPower;
+    upsertDevice(id, name, rssi, txPower);
+  }
+
+  function stopScan(){
+    if(scanController){ try{ scanController.stop(); }catch(e){} }
+    navigator.bluetooth.removeEventListener('advertisementreceived', onAdvertisement);
+    scanning = false;
+    scanBtn.textContent = '🔍 Iniciar varredura';
+    setStatus('Varredura parada.', false);
+    stopSweep();
+  }
+
+  scanBtn.addEventListener('click', ()=>{
+    if(scanning) stopScan(); else startScan();
+  });
+
+  pairBtn.addEventListener('click', async ()=>{
+    if(!navigator.bluetooth){
+      setStatus('Web Bluetooth não disponível neste navegador.', false);
+      return;
+    }
+    try{
+      const device = await navigator.bluetooth.requestDevice({ acceptAllDevices:true, optionalServices:[] });
+      // sem RSSI direto aqui; estimamos com valor moderado e atualizamos via GATT connect se possível
+      let rssi = -65;
+      upsertDevice(device.id, device.name || 'Dispositivo pareado', rssi, undefined);
+      setStatus(`Adicionado: ${device.name || device.id}`, true);
+    }catch(err){
+      setStatus('Seleção cancelada ou erro: ' + err.message, false);
+    }
+  });
+
+  clearBtn.addEventListener('click', ()=>{
+    devices.clear();
+    render();
+    setStatus('Lista limpa.', false);
+  });
+
+  // Instalação PWA
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e)=>{
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'inline-block';
+  });
+  installBtn.addEventListener('click', async ()=>{
+    if(!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.style.display = 'none';
+  });
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+    });
+  }
+
+  // refresco periódico da lista (tempo "visto há Xs")
+  setInterval(render, 5000);
+
+  drawRings();
+  render();
+})();
+</script>
+</body>
+</html>
